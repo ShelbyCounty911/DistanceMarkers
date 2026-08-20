@@ -1,231 +1,149 @@
 # Distance Markers ETL (FME Form)
 
-This workspace collects multiple public distance-marker datasets, standardizes their schema and labels, and publishes the results to an ArcGIS Online feature layer named **DistanceMarkers**.
+This FME Form workspace collects public distance-marker datasets, standardizes them into a shared schema, generates alternate search names, and publishes the results to ArcGIS Online.
 
-## Overview
+## Sources
 
-The workspace consolidates distance marker data from several public REST sources into a single output layer:
+The workspace currently uses public ArcGIS REST services for:
 
 - Tennessee DOT mile markers
 - FRA rail mileposts
 - USACE river mile markers
-- Shelby County 911 ESZ polygons used to spatially filter river markers
+- Shelby County 911 ESZ polygons
+- Shelby County 911 trail markers
 
-The output is written to an **Esri ArcGIS Online Feature Service**.
-
-## What the workspace does
-
-### 1. Ingests source data from public REST endpoints
-The workspace uses custom transformers to request features from public ArcGIS REST services with source-specific SQL where clauses.
-
-Current source filters include:
+Current source filters:
 
 - **TDOT Mile Markers**: `COUNTY=79`
 - **FRA Rail Posts**: `STCYFIPS=47157`
 - **USACE River Mile Markers**: `RIVER_NUMB=21`
 - **SC911 ESZ**: `1=1`
+- **SC911 Trail Markers**: `1=1`
 
-### 2. Cleans and normalizes source attributes
-For each source, the workspace exposes needed attributes and removes REST/query artifacts such as:
+## Outputs
 
-- `_http_status_code`
-- `_response_body`
-- pagination fields
-- JSON helper attributes
+The workspace writes to these ArcGIS Online layers/tables:
 
-### 3. Parses roadway sign text into structured fields
-For the TDOT source, the workspace performs fairly detailed text parsing on the `COMMENTS` field:
+- **DistanceMarkers** — core marker features
+- **DistanceMarker_AltNames** — alternate names for road, rail, and river markers
+- **TrailMarker_AltNames** — alternate names for trail markers
 
-- removes unnecessary tokens like `MILE`
-- splits compound text on semicolons
-- counts list elements
-- routes features into different parsing streams depending on element count
-- further splits text on colons where needed
-- removes regex-unsafe/special characters
-- normalizes abbreviations such as:
-  - `E` → `East`
-  - `W` → `West`
-  - `N` → `North`
-  - `S` → `South`
-  - `SR-` / `SR` → `State Route`
-  - `I-` → `Interstate`
+## What the workspace does
 
-### 4. Builds search-friendly alternate labels
-For road-based markers, the workspace creates alternate naming variations to improve fuzzy matching / search behavior, such as different expansions of route abbreviations.
+### Standardizes multiple marker types
+The workspace maps several source datasets into a shared marker model with values such as:
 
-Examples of derived fields include:
-
-- `Label`
-- `AltLabel1`
-- `AltLabel2`
-- `AltLabel3`
-- `AltLabel4`
-- `AltLabel5`
-
-### 5. Spatially filters river mile markers
-River mile markers are clipped to a buffered geography derived from the **SC911 ESZ** layer:
-
-- ESZ polygons are dissolved
-- dissolved geometry is buffered by **5 miles**
-- USACE river markers are clipped to that buffered area
-- only features on the `INSIDE` output are retained
-
-### 6. Standardizes output schema
-Each source is mapped into a common destination schema centered on:
-
+- `ShelbyID`
 - `Type`
 - `Marker`
 - `MarkerExt`
 - `Name`
 - `Label`
-- `AltLabel1`–`AltLabel5`
 
-Examples of standardized `Type` values include:
+Current standardized marker types include:
 
 - `Road`
 - `Railroad`
 - `River`
+- `Trail`
 
-### 7. Merges all streams and writes to ArcGIS Online
-The processed source streams are joined and written to a single ArcGIS Online output feature type:
+### Parses TDOT road marker text
+The TDOT branch performs the most custom transformation work. It:
 
-- **Writer format:** Esri ArcGIS Online Feature Service
-- **Feature type / layer name:** `DistanceMarkers`
+- filters to relevant sign records
+- parses `COMMENTS`
+- splits compound text into elements
+- normalizes route and direction abbreviations
+- builds a standardized road marker label
 
----
+Examples of normalization include:
+
+- `N` → `North`
+- `S` → `South`
+- `E` → `East`
+- `W` → `West`
+- `SR...` → `State Route ...`
+- `I...` → `Interstate ...`
+
+> Note: the 2-element TDOT parsing path is currently skipped because the source values are too inconsistent to map cleanly.
+
+### Spatially filters river markers
+River mile markers are spatially constrained using the SC911 ESZ layer:
+
+- ESZ polygons are dissolved
+- the result is buffered by **5 miles**
+- USACE river markers are clipped to that buffered area
+- only features inside the buffered area are kept
+
+### Generates alternate search names
+The workspace creates alternate-name records for locator/search support by:
+
+- building a list of spelling and wording variations
+- exploding the list into one record per alternate name
+- removing geometry
+- writing the result to dedicated alternate-name tables
+
+Examples include variations using:
+
+- `Mile`
+- `Mile Marker`
+- `MM`
+- abbreviated vs expanded route names
+- reversed marker/name ordering
+
+### Deduplicates selected branches
+Duplicate handling is source-specific:
+
+- **road markers**: deduplicated by `ShelbyID`
+- **trail markers**: deduplicated by `ShelbyID`
+- **rail markers**: no duplicates expected by design
+- **river markers**: no duplicates expected by design
 
 ## Workspace structure
 
-The workspace is organized into several logical branches:
+### TDOT Mile Markers
+Parses and standardizes road mile marker text from `COMMENTS`, then creates alternate-name records.
 
-### TDOT Mile Markers branch
-Main purpose:
-- parse sign text from `COMMENTS`
-- normalize route/direction naming
-- create standardized labels and alternate labels
+### FRA Rail Posts
+Maps `MILEPOST` values into the common schema and creates alternate-name records.
 
-Key transformers:
-- `AttributeExposer`
-- `AttributeRemover`
-- `Tester`
-- `StringReplacer`
-- `AttributeSplitter`
-- `ListElementCounter`
-- `TestFilter`
-- `AttributeCreator`
-- `AttributeManager`
+### USACE River Mile Markers
+Filters river markers spatially using buffered ESZ geometry, standardizes the schema, and creates alternate-name records.
 
-### FRA Rail Posts branch
-Main purpose:
-- expose `MILEPOST`
-- map rail mileposts into the common schema
+### SC911 ESZ
+Creates dissolved and buffered support geometry for river filtering.
 
-Key output values:
-- `Type = Railroad`
-- `Name = Railpost`
-
-### USACE River Mile Markers branch
-Main purpose:
-- expose `name`
-- spatially constrain records using dissolved/buffered ESZ geometry
-- map into the common schema
-
-Key output values:
-- `Type = River`
-- `Name = Mississippi River`
-
-### SC911 ESZ support branch
-Main purpose:
-- create a dissolved study area
-- buffer it by 5 miles for river marker filtering
-
-Key transformers:
-- `Dissolver`
-- `Bufferer`
-- `Clipper`
-
----
-
-## Output schema
-
-The final output layer is intended to support user-facing label/search behavior across multiple distance marker types.
-
-Typical output attributes:
-
-| Attribute | Description |
-|---|---|
-| `Type` | Marker category such as Road, Railroad, or River |
-| `Marker` | Primary marker value |
-| `MarkerExt` | Marker extension / decimal / suffix where available |
-| `Name` | Standardized route/feature name |
-| `Label` | Preferred display label |
-| `AltLabel1`–`AltLabel5` | Alternate labels for search/fuzzy matching |
-
-> Note: Some sources intentionally leave certain alternate labels null because the source values are too inconsistent to map reliably.
-
----
-
-## Destination
-
-The workspace writes to an ArcGIS Online feature service using a configured web connection.
-
----
+### SC911 Trail Markers
+Standardizes trail marker attributes, removes duplicate core records, and creates alternate-name records.
 
 ## Dependencies
 
 - **FME Form**
-- Access to the configured **ArcGIS Online web connection**
-- Availability of the public ArcGIS REST endpoints referenced in the custom source transformers
+- configured ArcGIS Online web connections
+- public ArcGIS REST endpoints used by the custom source transformers
+- ArcGIS feature service writer support used by the workspace
 
----
-
-## Notes and assumptions
-
-- The TDOT parsing logic is **highly customized** to the current source text patterns.
-- Some branches explicitly skip overly inconsistent patterns rather than forcing exception-heavy logic.
-- The river branch depends on the SC911 ESZ support layer to spatially constrain results.
-- Because this writes to ArcGIS Online, target schema changes in the hosted layer may require writer schema refresh/import.
-
----
-
-## Source endpoints represented in the workspace
-
-This repository currently uses public ArcGIS REST-based sources for:
-
-- TDOT mile markers
-- FRA rail mileposts
-- USACE river mile markers
-- SC911 ESZ polygons
-
----
-
-## Future Work
-
-1. **Document expected output schema in the workspace Description/Help**
-4. **Add validation/testing for unmatched parsing cases**
-5. **Log counts by source and by parsing branch**
-6. **Externalize route normalization rules** if naming patterns continue to grow
-7. Add additional repo infrastructure:
-   - `docs/` — optional design notes, schema notes, sample outputs
-   - `samples/` — optional sample source payloads or expected output extracts
-
----
-
-## Maintenance
+## Maintenance notes
 
 When updating this workspace, review:
 
-- source endpoint availability
-- schema changes in upstream feature services
+- upstream source availability
+- source schema changes
 - ArcGIS Online destination schema
-- parsing assumptions in the TDOT branch
-- spatial filter assumptions in the river branch
+- TDOT parsing assumptions
+- alternate-name generation rules
+- river spatial filter assumptions
+- `ShelbyID` logic used for joins and deduplication
 
----
+## Notes
+
+- The TDOT parsing logic is highly customized and regex-heavy.
+- `ShelbyID` is used as the core join key between the main marker output and alternate-name outputs.
+- The workspace uses separate outputs for core marker features and alternate-name records.
+- Hosted ArcGIS Online schema changes may require writer schema refresh or feature type re-import.
 
 ## License / data usage
 
-This repository contains FME workspace logic only.  
-Usage rights and attribution for source datasets depend on the original data publishers.
+This repository contains FME workspace logic only.
 
-Please review the licensing and attribution requirements of each upstream public service before redistribution or republication.
+Usage rights and attribution for source datasets depend on the original data publishers. Review the licensing and attribution requirements of each upstream service before redistribution or republication.
