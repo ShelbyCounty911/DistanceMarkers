@@ -18,7 +18,6 @@ Current source filters:
 - **FRA Rail Posts**: `STCYFIPS=47157`
 - **USACE River Mile Markers**: `RIVER_NUMB=21`
 - **SC911 ESZ**: `1=1`
-- **SC911 Trail Markers**: `1=1`
 
 ## Outputs
 
@@ -27,25 +26,30 @@ The workspace writes to these ArcGIS Online layers/tables:
 - **DistanceMarkers** — core marker features
 - **DistanceMarker_AltNames** — alternate names for road, rail, and river markers
 - **TrailMarker_AltNames** — alternate names for trail markers
+> Note: trail markers are stored in [a separate layer](https://scecd.maps.arcgis.com/home/item.html?id=3b8ff43116c04ddab019af4c40e87d92) by design.
 
 ## What the workspace does
 
 ### Standardizes multiple marker types
 The workspace maps several source datasets into a shared marker model with values such as:
 
-- `ShelbyID`
-- `Type`
-- `Marker`
-- `MarkerExt`
-- `Name`
-- `Label`
+- `DiscrpAgID`: `Discrepancy Agency ID`
+- `DateUpdate`: `Date Updated`
+- `NGUID`: `NENA Globally Unique ID`
+- `DM_Unit`: `Distance Marker Unit of Measurement`
+- `DM_Value`: `Distance Marker Measurement Value`
+- `DM_Rte`: `Distance Marker Route Name`
+- `DM_Type`: `Distance Marker Route Type`
+- `DM_Ind`: `Distance Marker Indicator`
+- `DM_Label`: `Distance Marker Label`
+
+This schema follows version 3 of the [NENA Standard for NG9-1-1 GIS Data Model](https://cdn.ymaws.com/www.nena.org/resource/resmgr/standards/standards1/NENA-STA-006.3_NG9-1-1_GIS_D.pdf)
 
 Current standardized marker types include:
 
 - `Road`
 - `Railroad`
 - `River`
-- `Trail`
 
 ### Parses TDOT road marker text
 The TDOT branch performs the most custom transformation work. It:
@@ -95,7 +99,6 @@ Examples include variations using:
 Duplicate handling is source-specific:
 
 - **road markers**: deduplicated by `ShelbyID`
-- **trail markers**: deduplicated by `ShelbyID`
 - **rail markers**: no duplicates expected by design
 - **river markers**: no duplicates expected by design
 
